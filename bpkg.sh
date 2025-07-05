@@ -1,18 +1,35 @@
 #!/bin/bash
 
+# The three below can be changed if you want to, but make sure you know what you're doing.
 temp_dir="temp"
 scripts_dir="scripts"
 bin_dir="bin"
 
+# Everything below here SHOULD NOT be changed unless you DEFINITELY know what you're doing
+master_file="$temp_dir/master"
+
 info_mode="off"
 list_location="https://raw.githubusercontent.com/zakunix/Linux-Scripts/refs/heads/main/master.txt"
 pkgmanager="dnf"
-master_file="$temp_dir/master"
 
 msg=""
 
-valid_switches=(help get)
+valid_switches=(help get pastebin)
 valid_methods=(js sh curl wget)
+# Major, Minor, Bugfixes/Patches
+version="v1.0.0"
+
+declare -A switch_descriptions=(
+    [get]="Fetches the script using the specified method."
+    [pastebin]="Gets a Pastebin script using the specified method."
+    [remove]="Removes the script."
+    [update]="Fetches the script using the specified method."
+    [info]="Gets info on the specified script."
+    [list]="Gets the list of scripts (server or local)."
+    [upgrade]="Gets bpkg's latest version."
+    [verifyself]="Verifies the core components of bpkg."
+    [help]="Prints this help screen."
+)
 
 mkdir -p $temp_dir
 mkdir -p $scripts_dir
@@ -122,34 +139,48 @@ download() {
 }
 
 help() {
-    printf '%0.s-' {1..100}
-    echo
-
+    printf '%0.s-' {1..100}; echo
     echo "bpkg.sh [-switch {subswitches} {ARG} ]"
     echo
 
-    printf '%-40s %s\n' "[-get {-usemethod} SCRIPT]"            "Fetches the script using the specified method."
-    printf '%-40s %s\n' "[-pastebin {-usemethod} PASTE_CODE]"   "Gets a Pastebin script using the specified method."
-    printf '%-40s %s\n' "[-remove SCRIPT]"                      "Removes the script."
-    printf '%-40s %s\n' "[-update {-usemethod} SCRIPT]"         "Fetches the script using the specified method."
-    printf '%-40s %s\n' "[-info {-usemethod} SCRIPT]"           "Gets info on the specified script."
-    printf '%-40s %s\n' "[-list -server {-usemethod}]"          "Gets the list of scripts on bpkg's server."
-    printf '%-40s %s\n' "[-list -local]"                        "Gets the list of scripts on the local computer."
-    printf '%-40s %s\n' "[-upgrade {-usemethod}]"               "Gets bpkg's latest version."
-    printf '%-40s %s\n' "[-verifyself {-usemethod}]"            "Verifies the core components of bpkg"
-    printf '%-40s %s\n' "bpkg -help"                            "Prints this help screen."
+    for switch in "${valid_switches[@]}"; do
+        case "$switch" in
+            get|pastebin|update|info|upgrade|verifyself)
+                printf '%-40s %s\n' "[-$switch {-usemethod} ARG]" "${switch_descriptions[$switch]}"
+                ;;
+            list)
+                printf '%-40s %s\n' "[-$switch -server {-usemethod}]" "${switch_descriptions[$switch]}"
+                printf '%-40s %s\n' "[-$switch -local]" ""
+                ;;
+            remove)
+                printf '%-40s %s\n' "[-$switch SCRIPT]" "${switch_descriptions[$switch]}"
+                ;;
+            help)
+                printf '%-40s %s\n' "bpkg.sh -$switch" "${switch_descriptions[$switch]}"
+                ;;
+        esac
+    done
+
+#     printf '%-40s %s\n' "[-get {-usemethod} SCRIPT]"            "Fetches the script using the specified method."
+#     printf '%-40s %s\n' "[-pastebin {-usemethod} PASTE_CODE]"   "Gets a Pastebin script using the specified method."
+#     printf '%-40s %s\n' "[-remove SCRIPT]"                      "Removes the script."
+#     printf '%-40s %s\n' "[-update {-usemethod} SCRIPT]"         "Fetches the script using the specified method."
+#     printf '%-40s %s\n' "[-info {-usemethod} SCRIPT]"           "Gets info on the specified script."
+#     printf '%-40s %s\n' "[-list -server {-usemethod}]"          "Gets the list of scripts on bpkg's server."
+#     printf '%-40s %s\n' "[-list -local]"                        "Gets the list of scripts on the local computer."
+#     printf '%-40s %s\n' "[-upgrade {-usemethod}]"               "Gets bpkg's latest version."
+#     printf '%-40s %s\n' "[-verifyself {-usemethod}]"            "Verifies the core components of bpkg"
+#     printf '%-40s %s\n' "bpkg -help"                            "Prints this help screen."
 
     echo
     echo "Suported methods: js (javascript), sh (bash shell), curl, wget."
     echo "Example: bpkg.sh -get -usejs test"
+    printf '%0.s-' {1..100}; echo
 
-    printf '%0.s-' {1..100}
-    echo
-
-    if [ ! -z "$msg" ]; then
+    if [[ -n "$msg" ]]; then
         echo "$msg"
     fi
-    #echo "$msg"
+
     exit 0
 }
 
@@ -242,6 +273,65 @@ get() {
     fi
 }
 
+pastebin() {
+    paste_bool="off"
+    paste_method=""
+
+    echo "bpkg pastebin tip: PASTE_CODE is the unique element of a PASTEBIN url."
+    echo "E.g a pastebin script located at https://pastebin.com/YkEtQYFR would have YkEtQYFR as its paste code."
+    echo "If you get the paste code wrong, you'll get a pastebin error as the output file instead of your intended script."
+    echo
+    echo
+
+    if [ -z "$1" ]; then
+        echo "Error: No pastebin get method supplied."
+        exit 1
+    fi
+
+    paste_method="$1"
+
+    for m in "${valid_methods[@]}"; do
+        if [[ "$m" == "${paste_method#-use}" ]]; then
+            paste_bool="yes"
+            paste_method="$m"
+        fi
+    done
+
+    if [ "$paste_bool" != "yes" ]; then
+        msg="Error: Invalid paste get method."
+        help
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        echo "Error: No paste code supplied."
+        exit 1
+    fi
+
+    paste_bool=""
+    paste_code="$2"
+
+    target_dir="$scripts_dir/pastebin/$paste_code"
+
+    if [[ -d "$target_dir" ]]; then
+        echo "Pastebin with code $2 already exists."
+        exit 1
+    fi
+
+    mkdir -p "$target_dir"
+    echo "Fetching $paste_code..."
+
+    download "$paste_method" "https://pastebin.com/raw/$paste_code" "$target_dir/script.bat"
+
+    if [[ ! -f "$target_dir/script.bat" ]]; then
+        echo "An error occured fetching pastebin script."
+        exit 1
+    fi
+
+    echo "Done."
+    exit 0
+}
+
 main() {
     if [ ! -f "$master_file" ]; then
         download "sh" "$list_location" "$master_file"
@@ -257,7 +347,7 @@ main() {
     checkcurl
 
     echo "------------------------------------------"
-    echo "bpkg v1.0"
+    echo "${0#./} $version"
     echo "Bash script manager"
     echo "Made by Zakunix"
     echo "------------------------------------------"
