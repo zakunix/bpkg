@@ -14,10 +14,10 @@ pkgmanager="dnf"
 
 msg=""
 
-valid_switches=(help get pastebin)
+valid_switches=(help get pastebin remove update info)
 valid_methods=(js sh curl wget)
 # Major, Minor, Bugfixes/Patches
-version="v1.0.0"
+version="v2.0.0"
 
 declare -A switch_descriptions=(
     [get]="Fetches the script using the specified method."
@@ -161,17 +161,6 @@ help() {
         esac
     done
 
-#     printf '%-40s %s\n' "[-get {-usemethod} SCRIPT]"            "Fetches the script using the specified method."
-#     printf '%-40s %s\n' "[-pastebin {-usemethod} PASTE_CODE]"   "Gets a Pastebin script using the specified method."
-#     printf '%-40s %s\n' "[-remove SCRIPT]"                      "Removes the script."
-#     printf '%-40s %s\n' "[-update {-usemethod} SCRIPT]"         "Fetches the script using the specified method."
-#     printf '%-40s %s\n' "[-info {-usemethod} SCRIPT]"           "Gets info on the specified script."
-#     printf '%-40s %s\n' "[-list -server {-usemethod}]"          "Gets the list of scripts on bpkg's server."
-#     printf '%-40s %s\n' "[-list -local]"                        "Gets the list of scripts on the local computer."
-#     printf '%-40s %s\n' "[-upgrade {-usemethod}]"               "Gets bpkg's latest version."
-#     printf '%-40s %s\n' "[-verifyself {-usemethod}]"            "Verifies the core components of bpkg"
-#     printf '%-40s %s\n' "bpkg -help"                            "Prints this help screen."
-
     echo
     echo "Suported methods: js (javascript), sh (bash shell), curl, wget."
     echo "Example: bpkg.sh -get -usejs test"
@@ -226,6 +215,9 @@ get() {
     script_count=0
     while IFS=',' read -r prefix name location desc filename hash author category last_modified tags script_size ; do
         if [[ "$prefix" == "[#]" && "$name" == "$script_name" ]]; then
+            target_dir="$scripts_dir/${name}"
+            target_path="$target_dir/$filename"
+
             if [[ "$info_mode" == "on" ]]; then
                 echo
                 echo "Name: $name"
@@ -237,7 +229,7 @@ get() {
                 exit 0
             fi
 
-            if [[ -f "$scripts_dir/$name" ]]; then
+            if [[ -f "$target_dir" ]]; then
                 echo "Script \"$name\" is already downloaded."
                 exit 1
             fi
@@ -246,11 +238,9 @@ get() {
 
             echo "Fetching $name..."
 
-            if [[ ! -d "$scripts_dir/$name" ]]; then
-                mkdir "$scripts_dir/$name"
+            if [[ ! -d "$target_dir" ]]; then
+                mkdir "$target_dir"
             fi
-
-            target_path="$scripts_dir/$name/$filename"
 
             if ! download "$get_method" "$location" "$target_path"; then
                 echo "An error occured while fetching script."
@@ -258,9 +248,9 @@ get() {
             fi
 
             if [ -f "$target_path" ]; then
-                echo "$hash" > "$scripts_dir/$name/hash"
-                echo "$desc" > "$scripts_dir/$name/info"
-                echo "$author" > "$scripts_dir/$name/author"
+                echo "$hash" > "$target_dir/hash"
+                echo "$desc" > "$target_dir/info"
+                echo "$author" > "$target_dir/author"
                 echo "Done."
             fi
         fi
@@ -329,6 +319,178 @@ pastebin() {
     fi
 
     echo "Done."
+    exit 0
+}
+
+remove() {
+    if [[ -z "$1" ]]; then
+        msg="Error: No script supplied."
+        help
+        exit 1
+    fi
+
+    target="$1"
+
+    if [ "${target,,}" == "pastebin" ]; then
+        if [[ ! -d "$scripts_dir/pastebin" ]]; then
+            echo "Pastebin folder does not exist."
+            exit 1
+        fi
+
+        read -p "Clear ALL your pastebin scripts? This can't be undone. [(Y)es/(N)o]" c
+        choice="${c,,}"
+
+        case "$choice" in
+            y)
+                rm -rf "$scripts_dir/pastebin"
+
+                if [[ -d "$scripts_dir/pastebin" ]]; then
+                    echo "Error occured while deleting the pastebin folder."
+                else
+                    echo "Pastebin folder removed."
+                fi
+                exit 0
+                ;;
+            *)
+                exit 0
+                ;;
+        esac
+    fi
+
+    if [[ ! -d "$scripts_dir/$1" ]]; then
+        echo "Script does not exist."
+        exit 1
+    fi
+
+    rm -rf "$scripts_dir/$target"
+
+    if [ -d "$scripts_dir/$target" ]; then
+        echo "bpkg could not delete specified script."
+        exit 1
+    fi
+
+    echo "Script \"$target\" removed."
+    exit 0
+}
+
+update() {
+    update_bool=
+    update_method=
+    target="$2"
+
+    if [ -z "$1" ]; then
+        echo "Error: No update method supplied."
+        exit 1
+    fi
+
+    if [ -z "$target" ]; then
+        echo "Error: No script name supplied."
+        exit 1
+    fi
+
+    for m in "${valid_methods[@]}"; do
+        if [ "$m" == "${1#-use}" ]; then
+            update_bool="yes"
+            update_method="$m"
+        fi
+    done
+
+    if [ "$update_bool" != "yes" ]; then
+        msg="Error: Invalid update method."
+        help
+        exit 1
+    fi
+
+    update_bool=
+
+    if [ ! -d "$scripts_dir/$target" ]; then
+        echo "Error: Script \"$target\" does not exist."
+        exit 1
+    fi
+
+    echo "Reading script list..."
+
+    if [ ! -f "$master_file" ]; then
+        echo "An error occured getting script list."
+        exit 1
+    fi
+
+    script_count=0
+    while IFS=',' read -r prefix name location desc filename hash author category last_modified tags script_size ; do
+        ((script_count++))
+        if [[ "$prefix" == "[#]" && "$name" == "$target" ]]; then
+            echo "Checking to see if there's a new version for $name..."
+            current_hash=
+
+            if [ ! -f "$scripts_dir/$target/hash" ]; then
+                echo "Hash file for $name is missing. Updating anyway."
+            else
+                current_hash=$(<"$scripts_dir/$target/hash")
+
+                if [ "$current_hash" == "$hash" ]; then
+                    echo "This is already the latest version."
+                    exit 1
+                fi
+            fi
+
+            temp_file_dir="$temp_dir/$name"
+            temp_file_path="$temp_file_dir/$filename"
+
+            if [ ! -d "$temp_file_dir" ]; then
+                mkdir -p "$temp_file_dir"
+            fi
+
+            if ! download "$update_method" "$location" "$temp_file_path"; then
+                echo "An error occured while fetching script."
+                exit 1
+            fi
+
+            if [ ! -f "$temp_file_path" ]; then
+                echo "An error occured while downloading the latest version of the script."
+                exit 1
+            fi
+
+            if [ -z "$current_hash" ]; then
+                $current_hash=$(date +%s%N | sha256sum | head -c 32)
+            fi
+
+            if [ ! -d "$scripts_dir/$name/old-$current_hash/" ]; then
+                mkdir "$scripts_dir/$name/old-$current_hash/"
+            fi
+
+            echo "Cleaning up old version..."
+
+            if [ -f "$scripts_dir/$name/$filename" ]; then
+                mv -f "$scripts_dir/$name/$filename" "$scripts_dir/$name/old-$current_hash"
+            fi
+            mv -f "$temp_file_path" "$scripts_dir/$name/$filename"
+            rm -rf "$temp_file_dir"
+
+            if [ ! -f "$scripts_dir/$name/$filename" ]; then
+                echo "An error occured while updating the script."
+                exit 1
+            fi
+
+            echo "$hash" > "$scripts_dir/$name/hash"
+            echo "$desc" > "$scripts_dir/$name/info"
+            echo "$author" > "$scripts_dir/$name/author"
+
+            echo Done.
+        fi
+    done < "$master_file"
+
+    if [ "$script_count" -eq 0 ]; then
+        echo "The script \"$target\" does not exist on the server."
+        exit 1
+    fi
+
+    exit 0
+}
+
+info() {
+    info_mode="on"
+    get "$@"
+    info_mode="off"
     exit 0
 }
 
