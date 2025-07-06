@@ -14,10 +14,13 @@ pkgmanager="dnf"
 
 msg=""
 
-valid_switches=(help get pastebin remove update info)
+valid_switches=(help get pastebin remove update info list upgrade)
 valid_methods=(js sh curl wget)
+valid_list_methods=(local server)
 # Major, Minor, Bugfixes/Patches
 version="v2.0.0"
+
+upgrade_file="upgrade.sh"
 
 declare -A switch_descriptions=(
     [get]="Fetches the script using the specified method."
@@ -33,6 +36,24 @@ declare -A switch_descriptions=(
 
 mkdir -p $temp_dir
 mkdir -p $scripts_dir
+
+truncate() {
+    local str="$1"
+    local max_len=$2
+
+    if (( ${#str} > max_len )); then
+        echo "${str:0:max_len-3}..."
+    else
+        echo "$str"
+    fi
+}
+
+trim() {
+  local var="$*"
+  var="${var#"${var%%[![:space:]]*}"}"
+  var="${var%"${var##*[![:space:]]}"}"
+  echo -n "$var"
+}
 
 detect_package_manager() {
   if command -v apt >/dev/null 2>&1; then
@@ -492,6 +513,159 @@ info() {
     get "$@"
     info_mode="off"
     exit 0
+}
+
+list() {
+    list_bool="off"
+    list_method=
+
+    for m in "${valid_list_methods[@]}"; do
+        if [ "$m" == "${1#-}" ]; then
+            list_bool="yes"
+            list_method="$m"
+            break
+        fi
+    done
+
+    if [ "$list_bool" != "yes" ]; then
+        echo "Invalid list switch."
+        exit 1
+    fi
+
+    if [ "$list_method" == "local" ]; then
+        script_count=0
+        echo "PASTEBIN folder is excluded."
+        for dir in scripts/*/; do
+            basename_dir="$(basename $dir)"
+            if [[ -d "$dir" && "${basename_dir,,}" != "pastebin" ]]; then
+                ((script_count++))
+                echo "$script_count. $basename_dir"
+            fi
+        done
+
+        if [ "$script_count" -eq 0 ]; then
+            echo "You have no scripts."
+            exit 1
+        fi
+    else
+        if [ -z "$2" ]; then
+            echo "No get method supplied."
+            exit 1
+        fi
+
+        for m in "${valid_methods[@]}"; do
+            if [ "$m" == "${2#-use}" ]; then
+                list_bool="yes"
+                list_method="$m"
+            fi
+        done
+
+        if [ "$list_bool" != "yes" ]; then
+            echo "Invalid method."
+            exit 1
+        fi
+
+        echo "Reading script list..."
+
+        script_count=0
+        format='%-4s %-20s %-45s %-15s\n'
+        printf "$format" "No" "Name" "Description" "Author"
+        printf '%0.s-' {1..100}; echo
+        while IFS=',' read -r prefix name location desc filename hash author category last_modified tags script_size ; do
+            if [[ "$prefix" == "[#]" ]]; then
+                ((script_count++))
+                trunc_name=$(trim "$(truncate "$name" 18)")
+                trunc_desc=$(trim "$(truncate "$desc" 40)")
+                trunc_author=$(trim "$(truncate "$author" 10)")
+                printf "$format" "$script_count."  "$trunc_name" "$trunc_desc" "$trunc_author"
+            fi
+        done < "$master_file"
+
+        if [ $script_count -eq 0 ]; then
+            echo "Could not get the script list."
+            exit 1
+        fi
+    fi
+
+    exit 0
+}
+
+upgrade() {
+    upgrade_bool=""
+    ugrade_method=""
+
+    upgrade_hash_location="https://raw.githubusercontent.com/zakunix/bpkg/refs/heads/main/bin/hash"
+    bpkg_location="https://raw.githubusercontent.com/zakunix/bpkg/refs/heads/main/bpkg.sh"
+
+    if [ -z "$1" ]; then
+        echo "Error: No update method supplied."
+        exit 1
+    fi
+
+    upgrade_method="$1"
+
+    for m in "${valid_methods[@]}"; do
+        if [ "$m" == "${upgrade_method#-use}" ]; then
+            upgrade_method="$m"
+            upgrade_bool="yes"
+            break
+        fi
+    done
+
+    if [ "$upgrade_bool" != "yes" ]; then
+        msg="Error: Invalid get method."
+        help
+        exit 1
+    fi
+
+    sess_rand=$(date +%s%N | sha256sum | head -c 32)
+    new_hash_temp_file="$temp_dir/hash-$sess_rand"
+
+    if ! download "$upgrade_method" "$upgrade_hash_location" "$new_hash_temp_file"; then
+        echo "An error occured while fetching new hash."
+        exit 1
+    fi
+
+    new_upgrade_hash=$(<"$new_hash_temp_file")
+    echo "$new_upgrade_hash"
+
+    if [ ! -f "$bin_dir/hash" ]; then
+        echo "No local hash found. Will upgrade anyway."
+        echo $(date +%s%N | sha256sum | head -c 32) > "$bin_dir/hash"
+    fi
+    rm -f "$new_hash_temp_file"
+
+    current_upgrade_hash=$(<"$bin_dir/hash")
+    if [ "$new_upgrade_hash" == "$current_upgrade_hash" ]; then
+        echo "You already have the latest version."
+        exit 1
+    fi
+
+    if [ -f "$upgrade_file" ]; then
+        rm -f "$upgrade_file"
+    fi
+
+    if ! download "$upgrade_method" "$bpkg_location" "$temp_dir/bpkg.sh"; then
+        echo "An error occured while fetching new bpkg."
+        exit 1
+    fi
+
+    echo '#!/bin/bash' > "$upgrade_file"
+    echo 'echo "Updating..."' > "$upgrade_file"
+    echo 'sleep 5' >> "$upgrade_file"
+    echo "mv -f $temp_dir/bpkg.sh ./bpkg.sh" >> "$upgrade_file"
+    echo "echo \"$new_upgrade_hash\" > bin/hash" >> "$upgrade_file"
+
+    chmod +x "$upgrade_file"
+    ./"$upgrade_file" &
+
+    exit 1
+}
+
+trash() {
+    for var in "$@"; do
+        unset "$var"
+    done
 }
 
 main() {
