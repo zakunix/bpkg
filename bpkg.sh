@@ -18,7 +18,7 @@ valid_switches=(help get pastebin remove update info list upgrade)
 valid_methods=(js sh curl wget)
 valid_list_methods=(local server)
 # Major, Minor, Bugfixes/Patches
-version="v2.0.0"
+version="v2.1.0"
 
 upgrade_file="upgrade.sh"
 
@@ -126,9 +126,18 @@ download() {
             wget -q "$source" -O "$dest" || return 1
             ;;
         sh)
-            if [ ! -f "./$bin_dir/download.sh" ]; then
+            if [ ! -f "$bin_dir/download.sh" ]; then
                 echo "Bash download method selected, but $bin_dir/download.sh not found."
-                return 1
+                echo "Downloading.."
+
+                if ! download "-usecurl" "https://raw.githubusercontent.com/zakunix/bpkg/refs/heads/main/bin/download.sh" "$bin_dir/download.sh"; then
+                    echo "An error occured while trying to download download.js"
+                    return 1
+                fi
+
+                if [ -f "$bin_dir/download.sh" ]; then
+                    chmod +x "./$bin_dir/download.sh"
+                fi
             fi
 
             ./"$bin_dir"/download.sh "$source" "$dest"
@@ -138,9 +147,14 @@ download() {
             fi
             ;;
         js)
-            if [ ! -f "./$bin_dir/download.js" ]; then
+            if [ ! -f "$bin_dir/download.js" ]; then
                 echo "JavaScript download method selected, but $bin_dir/download.js not found."
-                return 1
+                echo "Downloading..."
+
+                if ! download "-usecurl" "https://raw.githubusercontent.com/zakunix/bpkg/refs/heads/main/bin/download.js" "$bin_dir/download.js"; then
+                    echo "An error occured while trying to download download.js"
+                    return 1
+                fi
             fi
             if ! command -v node >/dev/null 2>&1; then
                 echo "Node.js is required for javascript method but not found."
@@ -157,6 +171,8 @@ download() {
             return 1
             ;;
     esac
+
+    return 0
 }
 
 help() {
