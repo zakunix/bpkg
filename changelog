@@ -1,0 +1,5 @@
+v1.0.0 Released on Github [6 JUL 2025]
+v2.0.0 Added info, update and remove switches
+v2.1.0 Made it so that download.js and download.sh is downloaded if missing from bins folder
+v2.2.0 Split the switches into their respective files, making it more modular and easier to modify and read
+    -  Changed the upgrade function a little bit to download changelogs too
